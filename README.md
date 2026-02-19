@@ -2,7 +2,7 @@
 
 **Cryptographically verifiable, globally unique, time-sortable identifiers.**
 
-[![npm](https://img.shields.io/npm/v/@vidjs/core?color=crimson&style=flat-square)](https://www.npmjs.com/package/@vidjs/core)
+[![npm](https://img.shields.io/npm/v/@veridjs/core?color=crimson&style=flat-square)](https://www.npmjs.com/package/@veridjs/core)
 [![zero deps](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](#)
 
 ---
@@ -261,7 +261,7 @@ const vid = VID.initialize({
 VID stores as BSON Binary — 18 bytes on disk per ID, no string encoding overhead.
 
 ```ts
-import { VIDMongoAdapter } from "@vidjs/core/adapters/mongo"
+import { VIDMongoAdapter } from "@veridjs/core/adapters/mongo"
 
 // Insert
 await collection.insertOne({
@@ -304,7 +304,7 @@ CREATE TABLE users (
 ```
 
 ```ts
-import { VIDPostgresAdapter } from "@vidjs/core/adapters/postgres"
+import { VIDPostgresAdapter } from "@veridjs/core/adapters/postgres"
 
 // Insert
 await db.query(
@@ -331,41 +331,6 @@ const rows = await db.query(
 const id   = VIDPostgresAdapter.fromDatabase(rows[0].id)
 const meta = vid.parse(id)
 ```
-
----
-
-## Benchmark — 1 million rows in MongoDB
-
-Machine: single-node MongoDB. Collection contains only the identifier field and one additional text field. All benchmarks use the same hardware, same data volume, same query pattern (lookup by primary key).
-
-```
-uuidv4_string     Inserted: 1,000,000   Insert: 14,515 ms   Index: 57.21 MB   Coll: 70.57 MB   Query: 29 ms
-uuidv7_string     Inserted: 1,000,000   Insert:  9,397 ms   Index: 16.33 MB   Coll: 70.57 MB   Query:  4 ms
-vid (binary)      Inserted: 1,000,000   Insert:  7,050 ms   Index: 22.85 MB   Coll:  ~6.2 MB   Query: ~4 ms
-```
-
-| | UUIDv4 string | UUIDv7 string | VID binary |
-|---|---:|---:|---:|
-| **Insert time** | 14,515 ms | 9,397 ms | **7,050 ms** |
-| **Index size** | 57.21 MB | 16.33 MB | 22.85 MB |
-| **Collection size** | 70.57 MB | 70.57 MB | **~6.2 MB** |
-| **Query time** | 29 ms | 4 ms | **~4 ms** |
-
-### What the numbers mean
-
-**51% faster inserts than UUIDv4.**
-UUIDv4 is completely random — inserts scatter across the entire B-tree index causing constant page splits and cache evictions. VID's time-prefixed binary keeps new inserts at the right edge of the index, like an auto-increment ID would, while still being globally unique without a sequence table.
-
-**25% faster inserts than UUIDv7 string.**
-Both are time-sorted. The difference is data volume: UUIDv7 stored as a 36-character UTF-8 string writes ~36 bytes per index key. VID binary writes 18 bytes. Half the index key size means more keys fit in a B-tree node, fewer nodes to traverse, and fewer disk pages written on insert.
-
-**91% smaller collection than UUIDv4/v7 string.**
-String storage encodes each identifier as ~36–38 UTF-8 bytes plus BSON string overhead. VID binary stores 18 raw bytes plus BSON Binary overhead. At one million rows the difference is ~64 MB. At 100 million rows that difference is working set that either fits in RAM or doesn't.
-
-**Index 60% larger than UUIDv7 string despite smaller binary.**
-VID's index is 22.85 MB vs UUIDv7's 16.33 MB because UUIDv7 binary is 16 bytes while VID is 18 bytes — the 2-byte difference is the cost of the embedded key version and sequence field that enable authenticity verification and multi-instance uniqueness. This is the documented trade-off.
-
-> **Reproducibility:** The `vid_string` benchmark label in the raw output is a misnomer — VID was benchmarked in binary (BSON Binary) mode, not string mode. The collection size reflects binary storage. Collection size was truncated in the original output at `6` — the `~6.2 MB` figure above is an estimate; the exact number will be in the published benchmark repository.
 
 ---
 
