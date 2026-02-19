@@ -15,7 +15,9 @@
     "LICENSE",
     "SECURITY.md"
   ],
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc"
   },
@@ -23,8 +25,17 @@
     "identifier",
     "uuid",
     "vid",
-    "distributed"
+    "distributed",
+    "verid"
   ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KishanKumar08/veridjs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/KishanKumar08/veridjs/issues"
+  },
+  "homepage": "https://github.com/KishanKumar08/veridjs#readme",
   "author": "Kishan Kumar",
   "license": "MIT",
   "devDependencies": {
