@@ -1,0 +1,37 @@
+{
+  "name": "@veridjs/core",
+  "version": "1.0.0",
+  "description": "Verifiable Identifier for distributed systems",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./postgres": "./dist/adapters/VIDPostgresAdapter.js",
+    "./mongo": "./dist/adapters/VIDMongoAdapter.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "build": "tsc"
+  },
+  "keywords": [
+    "identifier",
+    "uuid",
+    "vid",
+    "distributed"
+  ],
+  "author": "Kishan Kumar",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/pg": "^8.16.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {}
+}
