@@ -41,3 +41,38 @@ test("verify, verifyDetailed and parse print nothing, valid input or not", () =>
   assert.equal(vid.parse(text).nodeId, 7)
   assert.ok(silent(), `expected no console output, got ${JSON.stringify(calls)}`)
 })
+
+test("the random-nodeId warning goes to onWarning, not the console", () => {
+  const saved = { POD_IP: process.env.POD_IP, HOSTNAME: process.env.HOSTNAME }
+  delete process.env.POD_IP
+  delete process.env.HOSTNAME
+  try {
+    const warnings = []
+    VID.initialize({ keys: { 1: SECRET }, currentKeyVersion: 1, onWarning: (m) => warnings.push(m) })
+    assert.equal(warnings.length, 1)
+    assert.match(warnings[0], /nodeId randomly assigned/)
+    assert.ok(silent())
+
+    // Without onWarning it still goes to console.warn, as before.
+    VID.initialize({ keys: { 1: SECRET }, currentKeyVersion: 1 })
+    assert.equal(calls.warn.length, 1)
+  } finally {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value !== undefined) process.env[key] = value
+    }
+  }
+})
+
+test("an explicit nodeId warns nowhere", () => {
+  const warnings = []
+  VID.initialize({ keys: { 1: SECRET }, currentKeyVersion: 1, nodeId: "api-1", onWarning: (m) => warnings.push(m) })
+  assert.deepEqual(warnings, [])
+  assert.ok(silent())
+})
+
+test("onWarning must be a function", () => {
+  assert.throws(
+    () => VID.initialize({ keys: { 1: SECRET }, currentKeyVersion: 1, onWarning: "yes" }),
+    /onWarning must be a function/
+  )
+})
