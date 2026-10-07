@@ -92,6 +92,7 @@ const vid = VID.initialize({
 | `keys` | `Record<number, string>` | ✅ | Map of `keyVersion → secret string`. Min 16 chars per secret. |
 | `currentKeyVersion` | `number` | ✅ | Version used for new IDs. Must exist in `keys`. Range: 0–255. |
 | `nodeId` | `number \| string` | — | Instance identifier. Accepts 0–65535 or any string. Auto-detected if omitted. |
+| `onWarning` | `(message: string) => void` | — | Receives configuration warnings (today, the random-nodeId fallback's) instead of `console.warn`. Pass your structured logger, e.g. `(m) => logger.warn(m)`. |
 
 > **Secret management:** Never hardcode secrets. Use `process.env.VID_SECRET` or a secrets manager. Secrets are hashed to 32-byte keys internally — they are never stored or logged.
 
@@ -228,7 +229,7 @@ VID embeds a `nodeId` (0–65535) in every ID to prevent collisions across concu
 | 2 | `nodeId` in config (string) | SHA-256 hashed to a stable uint16. Deterministic across restarts. |
 | 3 | `POD_IP` env var | Kubernetes Downward API — unique per pod. |
 | 4 | `HOSTNAME` env var | Docker / ECS — unique per container. |
-| 5 | Random + **warning logged** | Safe only for single-instance deployments. |
+| 5 | Random + **warning logged** | Safe only for single-instance deployments. The warning goes to `onWarning` if given, else `console.warn`. |
 
 **Kubernetes (recommended for production):**
 

@@ -45,12 +45,18 @@ const MAX_NODE_ID = 65535
  *   (hashed to a stable uint16). If omitted, auto-detected from environment
  *   in priority order: POD_IP → HOSTNAME → random (with warning).
  *
+ * onWarning (optional):
+ *   Receives configuration warnings instead of console.warn, so they can go
+ *   through the application's structured logger. Today the only one is the
+ *   random-nodeId fallback's. Example: onWarning: (message) => logger.warn(message)
+ *
  * See also: NodeIdResolver for auto-detection details.
  */
 export interface VIDInitOptions {
   keys: Record<number, string>
   currentKeyVersion: number
   nodeId?: number | string
+  onWarning?: (message: string) => void
 }
 
 /**
@@ -112,7 +118,8 @@ export class VID {
     const resolution = NodeIdResolver.resolve(options.nodeId)
 
     if (resolution.warning) {
-      console.warn(resolution.warning)
+      const warn = options.onWarning ?? console.warn
+      warn(resolution.warning)
     }
 
     this.nodeId = resolution.nodeId
@@ -461,6 +468,13 @@ export class VID {
           `Received: ${options.nodeId}`
         )
       }
+    }
+
+    // ── onWarning (optional) ──────────────────────────────────────────────
+    if (options.onWarning !== undefined && typeof options.onWarning !== "function") {
+      throw new TypeError(
+        `VID.initialize: onWarning must be a function. Received: ${typeof options.onWarning}`
+      )
     }
   }
 }

@@ -1,13 +1,16 @@
 {
   "name": "@veridjs/core",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Verifiable Identifier for distributed systems",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./postgres": "./dist/adapters/VIDPostgresAdapter.js",
-    "./mongo": "./dist/adapters/VIDMongoAdapter.js"
+    "./postgres": "./dist/adapters/postgres/VIDPostgresAdapter.js",
+    "./mongo": "./dist/adapters/mongo/VIDMongoAdapter.js",
+    "./adapters/postgres": "./dist/adapters/postgres/VIDPostgresAdapter.js",
+    "./adapters/mongo": "./dist/adapters/mongo/VIDMongoAdapter.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",
@@ -19,7 +22,10 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc"
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "build": "npm run clean && tsc",
+    "test": "npm run build && node --test tests/vid.test.js",
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "identifier",
@@ -41,8 +47,16 @@
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@types/pg": "^8.16.0",
+    "bson": "^7.3.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
   },
-  "dependencies": {}
+  "peerDependencies": {
+    "bson": ">=4"
+  },
+  "peerDependenciesMeta": {
+    "bson": {
+      "optional": true
+    }
+  }
 }
