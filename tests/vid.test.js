@@ -1,0 +1,43 @@
+// Tests for the built package (`npm test` builds first), with Node's own runner: no test framework.
+// `/test` is gitignored, so these live in `tests/`.
+const { test, beforeEach, afterEach } = require("node:test")
+const assert = require("node:assert/strict")
+const { VID } = require("@veridjs/core")
+
+const SECRET = "a-test-secret-of-at-least-sixteen-chars"
+
+let calls
+let originals
+
+beforeEach(() => {
+  calls = { log: [], warn: [], error: [], info: [], debug: [] }
+  originals = {}
+  for (const level of Object.keys(calls)) {
+    originals[level] = console[level]
+    console[level] = (...args) => calls[level].push(args)
+  }
+})
+
+afterEach(() => {
+  for (const level of Object.keys(originals)) console[level] = originals[level]
+})
+
+const silent = () => Object.values(calls).every((c) => c.length === 0)
+
+test("verify, verifyDetailed and parse print nothing, valid input or not", () => {
+  const vid = VID.initialize({ keys: { 1: SECRET }, currentKeyVersion: 1, nodeId: 7 })
+  const id = vid.generate()
+  const text = id.toString()
+  const forged = text.slice(0, -1) + (text.endsWith("A") ? "B" : "A")
+
+  assert.equal(vid.verify(id), true)
+  assert.equal(vid.verify(text), true)
+  assert.equal(vid.verify(id.toBinary()), true)
+  assert.equal(vid.verify(forged), false)
+  assert.equal(vid.verify("not-an-id"), false)
+  assert.equal(vid.verify(null), false)
+  assert.equal(vid.verifyDetailed(text).valid, true)
+  assert.equal(vid.verifyDetailed(forged).valid, false)
+  assert.equal(vid.parse(text).nodeId, 7)
+  assert.ok(silent(), `expected no console output, got ${JSON.stringify(calls)}`)
+})
