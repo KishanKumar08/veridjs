@@ -6,8 +6,11 @@
   "types": "dist/index.d.ts",
   "exports": {
     ".": "./dist/index.js",
-    "./postgres": "./dist/adapters/VIDPostgresAdapter.js",
-    "./mongo": "./dist/adapters/VIDMongoAdapter.js"
+    "./postgres": "./dist/adapters/postgres/VIDPostgresAdapter.js",
+    "./mongo": "./dist/adapters/mongo/VIDMongoAdapter.js",
+    "./adapters/postgres": "./dist/adapters/postgres/VIDPostgresAdapter.js",
+    "./adapters/mongo": "./dist/adapters/mongo/VIDMongoAdapter.js",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist",

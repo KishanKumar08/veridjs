@@ -76,3 +76,14 @@ test("onWarning must be a function", () => {
     /onWarning must be a function/
   )
 })
+
+test("every documented entry point resolves", () => {
+  assert.equal(typeof require("@veridjs/core").VID, "function")
+  for (const path of ["mongo", "adapters/mongo"]) {
+    assert.equal(typeof require(`@veridjs/core/${path}`).VIDMongoAdapter, "function", path)
+  }
+  for (const path of ["postgres", "adapters/postgres"]) {
+    assert.equal(typeof require(`@veridjs/core/${path}`).VIDPostgresAdapter, "function", path)
+  }
+  assert.equal(require("@veridjs/core/package.json").name, "@veridjs/core")
+})
