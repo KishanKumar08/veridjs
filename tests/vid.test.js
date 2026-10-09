@@ -28,7 +28,8 @@ test("verify, verifyDetailed and parse print nothing, valid input or not", () =>
   const vid = VID.initialize({ keys: { 1: SECRET }, currentKeyVersion: 1, nodeId: 7 })
   const id = vid.generate()
   const text = id.toString()
-  const forged = text.slice(0, -1) + (text.endsWith("A") ? "B" : "A")
+  // Change a character inside the signature (not the last one, whose low bit is padding).
+  const forged = text.slice(0, 20) + (text[20] === "A" ? "B" : "A") + text.slice(21)
 
   assert.equal(vid.verify(id), true)
   assert.equal(vid.verify(text), true)

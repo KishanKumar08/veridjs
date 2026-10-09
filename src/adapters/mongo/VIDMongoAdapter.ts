@@ -56,7 +56,7 @@ export type VIDDocument = Binary
  *     intent clear to other developers reading the code.
  *
  *   String (base32 VID string):
- *     26-char string stored as UTF-8 = 26 bytes on disk.
+ *     29-char string stored as UTF-8 = 29 bytes on disk.
  *     BSON Binary = 18 bytes on disk.
  *     At 1 million documents: 8MB wasted in index alone.
  *     Strings also lose type information and require special handling
@@ -88,7 +88,7 @@ export type VIDDocument = Binary
  *
  * Query pattern:
  *   ```ts
- *   const binary = VIDMongoAdapter.fromString("AEAZY4DVF7PQAKQAAA2PMOJS2DIBB")
+ *   const binary = VIDMongoAdapter.fromString("AEAZY4DVF7PQAKQAADFM7JS2DIBBQ")
  *   const doc    = await collection.findOne({ _id: binary })
  *   ```
  */
@@ -166,7 +166,10 @@ export class VIDMongoAdapter {
    * ```
    */
   static fromDatabase(value: Binary): VIDValue {
-    if (!(value instanceof Binary)) {
+    // Duck-typed rather than `instanceof Binary`: the mongodb driver ships its
+    // own copy of bson, so documents it returns are often Binary instances
+    // from a different bson module than the one this adapter imports.
+    if (value === null || typeof value !== "object" || value._bsontype !== "Binary") {
       throw new TypeError(
         `VIDMongoAdapter.fromDatabase: expected a BSON Binary instance. ` +
         `Received: ${value === null ? "null" : value === undefined ? "undefined" : typeof value}. ` +
@@ -174,10 +177,10 @@ export class VIDMongoAdapter {
       )
     }
 
-    // Binary.buffer is a Node.js Buffer — always a fresh allocation from BSON,
-    // not a pooled view, so byteOffset is reliably 0. We still go through
-    // VIDValue.fromBinary() to get length validation and a defensive copy.
-    const bytes = new Uint8Array(value.buffer)
+    // Binary.buffer can be larger than the stored value (bson allocates
+    // capacity up front), so slice to length() rather than reading it whole.
+    // VIDValue.fromBinary() then validates length and makes a defensive copy.
+    const bytes = value.buffer.subarray(0, value.length())
 
     if (bytes.length !== VID_BYTE_LENGTH) {
       throw new RangeError(

@@ -23,4 +23,12 @@ export class TimeUtils {
     return ts
   }
 
+  /**
+   * Overrides the clock (pass undefined to restore Date.now()).
+   * @internal For tests that need to simulate clock drift or frozen clocks.
+   */
+  static setProvider(provider: (() => number) | undefined): void {
+    TimeUtils._provider = provider
+  }
+
 }

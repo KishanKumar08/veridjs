@@ -33,7 +33,7 @@ const VID_BINARY_BYTES = 18
  *
  * Derivation:
  *   18 bytes × 8 bits/byte = 144 bits of input
- *   144 bits ÷ 5 bits/char = 28.8 chars → rounds up to 29?
+ *   144 bits ÷ 5 bits/char = 28.8 chars → rounds up to 29
 
  *   Standard RFC 4648 base32 pads to multiples of 8 characters using '='.
  *   VID uses unpadded base32 (no '=' characters), which is common in
@@ -167,6 +167,17 @@ export class Base32Encoder {
   }
 
   /**
+   * Returns true if the last character of a 29-character base32 string has
+   * zero padding bits, i.e. the string is the one form encode() produces.
+   * Assumes the string has already passed length and alphabet checks.
+   */
+  static isCanonical(normalized: string): boolean {
+    const paddingBits = VID_STRING_CHARS * BITS_PER_CHAR - VID_BINARY_BYTES * BITS_PER_BYTE
+    const last = Base32Encoder.DECODE_LOOKUP[normalized.charCodeAt(normalized.length - 1)]
+    return last >= 0 && (last & ((1 << paddingBits) - 1)) === 0
+  }
+
+  /**
    * Decodes a 29-character unpadded base32 string to an 18-byte Uint8Array.
    *
    * Accepts mixed case — input is normalized to uppercase before processing.
@@ -184,6 +195,7 @@ export class Base32Encoder {
    * @throws {TypeError}  input is not a string.
    * @throws {RangeError} input is not exactly VID_STRING_CHARS characters after normalization.
    * @throws {Error}      input contains a character outside the base32 alphabet.
+   * @throws {Error}      input is not canonical (non-zero padding bits).
    * @throws {RangeError} decoded output is not exactly VID_BINARY_BYTES bytes (sanity check).
    */
   static decode(input: string): Uint8Array {
@@ -239,6 +251,18 @@ export class Base32Encoder {
         bits -= BITS_PER_BYTE
         output[outputIndex++] = (value >>> bits) & BYTE_MASK
       }
+    }
+
+    // Canonical form: the encoder zero-fills the final character's unused
+    // low bits (29 chars × 5 = 145 bits for 144 bits of data, so 1 bit).
+    // Rejecting a non-zero padding bit means every VID has exactly one
+    // string form — otherwise two different strings decode to the same ID,
+    // which breaks string-keyed caches, dedupe, and rate limiting.
+    if ((value & ((1 << bits) - 1)) !== 0) {
+      throw new Error(
+        `Base32Encoder.decode: non-canonical encoding — the unused padding bits ` +
+        `of the final character must be zero.`
+      )
     }
 
     // Sanity check: output must be exactly VID_BINARY_BYTES.

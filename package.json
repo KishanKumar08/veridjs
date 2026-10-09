@@ -1,55 +1,79 @@
 {
   "name": "@veridjs/core",
-  "version": "1.1.2",
-  "description": "Verifiable Identifier for distributed systems",
+  "version": "1.2.0",
+  "description": "Signed, time-sortable IDs for Node.js. Verify an ID came from your servers in one synchronous call, before touching the database.",
+  "keywords": [
+    "id",
+    "identifier",
+    "uuid",
+    "uuidv7",
+    "ulid",
+    "snowflake",
+    "signed-id",
+    "hmac",
+    "verifiable",
+    "tamper-proof",
+    "time-sortable",
+    "distributed",
+    "primary-key",
+    "postgres",
+    "mongodb",
+    "vid",
+    "verid"
+  ],
+  "homepage": "https://github.com/KishanKumar08/veridjs#readme",
+  "bugs": {
+    "url": "https://github.com/KishanKumar08/veridjs/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KishanKumar08/veridjs.git"
+  },
+  "license": "MIT",
+  "author": "Kishan Kumar",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
-    ".": "./dist/index.js",
-    "./postgres": "./dist/adapters/postgres/VIDPostgresAdapter.js",
-    "./mongo": "./dist/adapters/mongo/VIDMongoAdapter.js",
-    "./adapters/postgres": "./dist/adapters/postgres/VIDPostgresAdapter.js",
-    "./adapters/mongo": "./dist/adapters/mongo/VIDMongoAdapter.js",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./postgres": {
+      "types": "./dist/adapters/postgres/VIDPostgresAdapter.d.ts",
+      "default": "./dist/adapters/postgres/VIDPostgresAdapter.js"
+    },
+    "./mongo": {
+      "types": "./dist/adapters/mongo/VIDMongoAdapter.d.ts",
+      "default": "./dist/adapters/mongo/VIDMongoAdapter.js"
+    },
+    "./adapters/postgres": {
+      "types": "./dist/adapters/postgres/VIDPostgresAdapter.d.ts",
+      "default": "./dist/adapters/postgres/VIDPostgresAdapter.js"
+    },
+    "./adapters/mongo": {
+      "types": "./dist/adapters/mongo/VIDMongoAdapter.d.ts",
+      "default": "./dist/adapters/mongo/VIDMongoAdapter.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "README.md",
     "LICENSE",
-    "SECURITY.md"
+    "SECURITY.md",
+    "CHANGELOG.md"
   ],
+  "sideEffects": false,
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "build": "npm run clean && tsc",
-    "test": "npm run build && node --test tests/vid.test.js",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test tests/*.test.js",
+    "bench": "npm run build && node bench/bench.js",
     "prepublishOnly": "npm test"
-  },
-  "keywords": [
-    "identifier",
-    "uuid",
-    "vid",
-    "distributed",
-    "verid"
-  ],
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/KishanKumar08/veridjs.git"
-  },
-  "bugs": {
-    "url": "https://github.com/KishanKumar08/veridjs/issues"
-  },
-  "homepage": "https://github.com/KishanKumar08/veridjs#readme",
-  "author": "Kishan Kumar",
-  "license": "MIT",
-  "devDependencies": {
-    "@types/node": "^25.2.3",
-    "@types/pg": "^8.16.0",
-    "bson": "^7.3.3",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "bson": ">=4"
@@ -58,5 +82,12 @@
     "bson": {
       "optional": true
     }
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "@types/pg": "^8.16.0",
+    "bson": "^7.3.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   }
 }

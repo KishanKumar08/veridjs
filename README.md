@@ -1,432 +1,405 @@
-# `@veridjs/core`
+<div align="center">
 
-**Cryptographically verifiable, globally unique, time-sortable identifiers.**
+# VID · `@veridjs/core`
+
+**IDs that prove they're yours.**
+
+Signed, time-sortable identifiers for Node.js. Check that an ID came from your servers with one synchronous call, before it ever touches your database.
 
 [![npm](https://img.shields.io/npm/v/@veridjs/core?color=crimson&style=flat-square)](https://www.npmjs.com/package/@veridjs/core)
-[![zero deps](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](#)
+[![CI](https://img.shields.io/github/actions/workflow/status/KishanKumar08/veridjs/ci.yml?branch=master&style=flat-square&label=tests)](https://github.com/KishanKumar08/veridjs/actions/workflows/ci.yml)
+[![zero deps](https://img.shields.io/badge/dependencies-0-brightgreen?style=flat-square)](./package.json)
+[![types](https://img.shields.io/badge/types-included-blue?style=flat-square)](./src/index.ts)
+[![license](https://img.shields.io/npm/l/@veridjs/core?style=flat-square)](./LICENSE)
+
+</div>
+
+```ts
+const id = vid.generate()            // AEAZY4DVF7PQAKQAADFM7JS2DIBBQ
+
+vid.verify(id)                       // true
+vid.verify("AEAZY4DVF7PQAKQAADFM7JS2DIBBA")  // false: forged, rejected in ~3 µs, no DB query
+```
 
 ---
 
-UUID tells you an ID is unique. **VID tells you an ID is yours.**
+## Why
 
-Every VID embeds an HMAC-SHA256 signature. Your server can verify — in a single synchronous call, without touching the database — that an ID was legitimately issued by your system and has not been tampered with. Random IDs, forged IDs, and enumeration attempts are rejected before any query runs.
+A UUID tells you an ID is **unique**. It can't tell you whether the ID is **real**.
+
+So every `GET /orders/:id` with a made-up ID costs you a database round-trip, a cache miss, and a log line. Bots that scan IDs, broken clients, and fuzzers all get to hit your database for free.
+
+VID puts an HMAC-SHA256 signature inside the ID. Your API can reject anything your servers didn't issue **at the edge, in memory, in microseconds**, and still get everything you like about UUIDv7: time-ordered, index-friendly, no coordination service.
 
 ```
 ┌────────────┬───────────┬────────┬──────────┬───────────┐
 │ KeyVersion │ Timestamp │ NodeId │ Sequence │ Signature │
 │   1 byte   │  6 bytes  │ 2 bytes│  2 bytes │  7 bytes  │
 └────────────┴───────────┴────────┴──────────┴───────────┘
-                         18 bytes total
+      18 bytes binary  ·  29 characters base32
 ```
 
----
+### Good fits
 
-## Why not UUID?
+- **Public APIs and URLs.** Drop junk and enumeration traffic before it reaches Postgres, Mongo or Redis.
+- **IDs that cross trust boundaries:** webhooks, callback URLs, IDs passed between microservices, IDs coming back from the browser.
+- **Cache-stampede protection.** Random IDs can't create cache misses because they never pass `verify()`.
+- **Multi-region writes.** Time-sortable and unique without a central sequence or Snowflake coordinator.
 
-| | UUIDv4 | UUIDv7 | Snowflake | **VID** |
-|---|:---:|:---:|:---:|:---:|
-| Globally unique | ✅ | ✅ | ✅ | ✅ |
-| Time-sortable | ❌ | ✅ | ✅ | ✅ |
-| Cryptographically verifiable | ❌ | ❌ | ❌ | ✅ |
-| Forgery-resistant | ❌ | ❌ | ❌ | ✅ |
-| No coordination service needed | ✅ | ✅ | ❌ | ✅ |
-| Key rotation | ❌ | ❌ | ❌ | ✅ |
-| Binary size | 16 B | 16 B | 8 B | **18 B** |
-| Zero dependencies | ✅ | ✅ | varies | ✅ |
+### Not a fit
 
-VID is 2 bytes larger than UUIDv7 binary. Those 2 bytes buy you something no other identifier format in this table offers: **proof of origin**.
+- **Secrets or access tokens.** VID is signed, not encrypted: the timestamp is readable by anyone. A valid ID is not permission to access the resource.
+- **The smallest possible key.** At 18 bytes, VID is 2 bytes larger than a UUID.
+- **Lexicographically sortable strings.** Sort by the binary column instead (see [Sorting](#sorting)).
 
 ---
 
-## Installation
+## Install
 
 ```bash
 npm install @veridjs/core
 ```
 
-**Node.js ≥ 18 required.** Zero runtime dependencies — only Node's built-in `crypto` module.
-
----
+Node.js ≥ 18. **Zero runtime dependencies**: it uses only `node:crypto`. Ships CommonJS and TypeScript types and works with `import` in ESM.
 
 ## Quick start
 
 ```ts
 import { VID } from "@veridjs/core"
 
-// Create once at application startup — reuse everywhere
-const vid = VID.initialize({
-  keys: { 1: process.env.VID_SECRET! },
+// Once, at startup. Reuse the instance everywhere.
+export const vid = VID.initialize({
+  keys: { 1: process.env.VID_SECRET! },  // ≥ 16 chars; use 32+ random bytes
   currentKeyVersion: 1,
-  nodeId: "pod-backend-us-east-1a", // Optional
 })
 
-// Generate
 const id = vid.generate()
-console.log(id.toString())  // "AEAZY4DVF7PQAKQAADFM7JS2DIBBQ"  (29 chars)
-console.log(id.toBinary())  // Uint8Array(18)
+id.toString()      // "AEAZY4DVF7PQAKQAADFM7JS2DIBBQ"
+id.toBinary()      // Uint8Array(18), for your primary key column
+JSON.stringify({ id })  // '{"id":"AEAZY4DVF7PQAKQAADFM7JS2DIBBQ"}'
 
-// Verify — boolean, never throws, constant-time
-const ok = vid.verify(id)
+vid.verify(req.params.id)  // boolean, never throws, constant-time
 
-// Parse metadata (verifies signature first by default)
-const meta = vid.parse(id)
-console.log(meta.iso)       // "2026-02-18T10:12:34.567Z"
-console.log(meta.nodeId)    // 4319  (stable hash of your string)
-console.log(meta.sequence)  // 0
+const meta = vid.parse(id) // verifies, then decodes
+meta.iso                   // "2026-10-07T10:32:34.567Z"
+```
+
+Generate a secret:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 ```
 
 ---
 
-## Initialization
+## How it compares
 
-```ts
-const vid = VID.initialize({
-  keys: { 1: process.env.VID_SECRET! },
-  currentKeyVersion: 1,
-  nodeId: "pod-backend-7d9f",  // optional — see Node Identity
-})
-```
+| | UUIDv4 | UUIDv7 | ULID | Snowflake | **VID** |
+|---|:---:|:---:|:---:|:---:|:---:|
+| Unique without coordination | ✅ | ✅ | ✅ | ❌ | ✅ |
+| Time-ordered binary / index locality | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Lexicographically sortable string | ❌ | ✅ | ✅ | ✅ | ❌ |
+| **Rejects forged / random IDs offline** | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Key rotation & revocation** | — | — | — | — | ✅ |
+| Binary size | 16 B | 16 B | 16 B | 8 B | 18 B |
+| String length | 36 | 36 | 26 | ≤ 20 | 29 |
+
+VID costs 2 extra bytes and one HMAC per ID. In return, every ID carries **proof of origin**.
+
+## Performance
+
+`npm run bench` on an Apple M-series laptop, Node 20:
+
+| Operation | Time | Throughput |
+|---|---:|---:|
+| `crypto.randomUUID()` (baseline) | 0.07 µs | 14 M/s |
+| `vid.generate()` | 2.7 µs | 365 k/s |
+| `vid.verify(string)` | 3.7 µs | 270 k/s |
+| `vid.verify(binary)` | 3.4 µs | 290 k/s |
+
+Almost all of that time is one HMAC-SHA256 call in Node's crypto. In practice, `verify()` is ~100× cheaper than the database round-trip it saves. Run the benchmark on your own hardware; the numbers vary.
+
+---
+
+## API
+
+### `VID.initialize(options)` → `VID`
 
 | Option | Type | Required | Description |
 |---|---|:---:|---|
-| `keys` | `Record<number, string>` | ✅ | Map of `keyVersion → secret string`. Min 16 chars per secret. |
-| `currentKeyVersion` | `number` | ✅ | Version used for new IDs. Must exist in `keys`. Range: 0–255. |
-| `nodeId` | `number \| string` | — | Instance identifier. Accepts 0–65535 or any string. Auto-detected if omitted. |
-| `onWarning` | `(message: string) => void` | — | Receives configuration warnings (today, the random-nodeId fallback's) instead of `console.warn`. Pass your structured logger, e.g. `(m) => logger.warn(m)`. |
+| `keys` | `Record<number, string>` | ✅ | `keyVersion → secret`. Versions 0–255, secrets ≥ 16 UTF-8 bytes. |
+| `currentKeyVersion` | `number` | ✅ | Version used for new IDs. Must exist in `keys`. |
+| `nodeId` | `number \| string` | — | Unique per running generator. 0–65535 or any string. Auto-detected if omitted ([details](#node-identity)). |
+| `onWarning` | `(message) => void` | — | Receives configuration warnings instead of `console.warn`. |
 
-> **Secret management:** Never hardcode secrets. Use `process.env.VID_SECRET` or a secrets manager. Secrets are hashed to 32-byte keys internally — they are never stored or logged.
-
----
-
-## API reference
+Misconfiguration throws at startup with a message that says how to fix it. Secrets are SHA-256-derived into 32-byte keys and the raw string is never stored.
 
 ### `vid.generate()` → `VIDValue`
 
-Generates a new VID. **Synchronous** — no async, no I/O, no await.
-
-```ts
-const id = vid.generate()
-```
-
-- Up to **65,536 unique IDs per millisecond per node** before the generator waits for the next clock tick
-- Sequence never wraps silently — overflow blocks until the clock advances (max 5 second wait, then throws)
-- Each instance maintains its own sequence counter — share one `VID` instance per process
-
----
+Synchronous, no I/O. Monotonic within the instance, even if the system clock steps backwards. Each instance can produce at least 32,768 IDs per millisecond. Past that it waits for the next millisecond and never wraps.
 
 ### `vid.verify(input)` → `boolean`
 
-Verifies the HMAC-SHA256 signature embedded in the ID. **Always returns `boolean`, never throws.**
+Accepts a `string` (case-insensitive, whitespace trimmed), `Uint8Array`, `Buffer`, `ArrayBuffer` or `VIDValue`. **Never throws.** Uses `crypto.timingSafeEqual`.
+
+### `vid.verifyDetailed(input)` → `{ valid: true } | { valid: false, reason }`
+
+For logs and metrics. Possible `reason` values:
+
+`NULL_INPUT` · `UNSUPPORTED_TYPE` · `INVALID_STRING_LENGTH` · `INVALID_STRING_CHARS` · `NON_CANONICAL_STRING` · `INVALID_BINARY_LENGTH` · `UNKNOWN_KEY_VERSION` · `SIGNATURE_MISMATCH`
+
+> Log the reason internally, but return a generic `400 Invalid ID` to clients.
+
+### `vid.parse(input, { verify = true })` → `VIDMetadata`
 
 ```ts
-vid.verify(id)                              // VIDValue
-vid.verify("AEAZY4DVF7PQAKQAADFM7JS2DIBBQ") // base32 string
-vid.verify(id.toBinary())                   // Uint8Array
-vid.verify(buffer)                          // Node.js Buffer
-vid.verify(arrayBuffer)                     // ArrayBuffer
+{ keyVersion: 1, timestamp: 1791369154567, date: Date, iso: "2026-10-07T10:32:34.567Z", nodeId: 4319, sequence: 18211 }
 ```
 
-Uses `crypto.timingSafeEqual` internally — immune to timing side-channel attacks.
-
----
-
-### `vid.parse(input, options?)` → `VIDMetadata`
-
-Decodes the ID into structured fields. **Verifies the signature first by default.**
-
-```ts
-const meta = vid.parse(id)
-// {
-//   keyVersion: 1,
-//   timestamp:  1708251234567,      // Unix ms — when the ID was generated
-//   date:       Date object,
-//   iso:        "2026-02-18T10:12:34.567Z",
-//   nodeId:     4319,               // resolved uint16 of your string
-//   sequence:   0,
-// }
-
-// If you already verified earlier in the pipeline, skip the second HMAC:
-const meta = vid.parse(id, { verify: false })
-```
-
-> ⚠️ Never use `{ verify: false }` on input from an untrusted source.
-
----
-
-### `vid.verifyDetailed(input)` → `VerifyResult`
-
-Returns a typed result with a failure reason. **For internal logging only — never expose the reason to API clients.**
-
-```ts
-const result = vid.verifyDetailed(req.params.id)
-
-if (!result.valid) {
-  logger.warn("VID rejected", { reason: result.reason, path: req.path })
-  // reason: "NULL_INPUT" | "INVALID_STRING_LENGTH" | "INVALID_STRING_CHARS"
-  //       | "INVALID_BINARY_LENGTH" | "UNKNOWN_KEY_VERSION" | "SIGNATURE_MISMATCH"
-
-  return res.status(400).json({ error: "Invalid ID" }) // generic to client
-}
-```
-
----
+Verifies first and throws if verification fails. Pass `{ verify: false }` only if you already verified the same input.
 
 ### `VIDValue`
 
-The object returned by `vid.generate()` and the static factories.
-
 ```ts
-id.toString()            // "AEAZY4DVF7PQAKQAADFM7JS2DIBBQ"  — 29-char base32 string
-id.toBinary()            // Uint8Array(18) — fresh defensive copy each call
-id.parse()               // VIDMetadata — structural decode, no signature check
-id.equals(other)         // byte-for-byte equality
+import { VIDValue } from "@veridjs/core"
 
-VIDValue.fromString("AEAZY4DVF7PQAKQAADFM7JS2DIBBQ")  // parse a received string
-VIDValue.fromBinary(uint8Array)                         // wrap raw database bytes
-VIDValue.isVIDValue(value)                              // TypeScript type guard
+id.toString()               // 29-char base32 (cached)
+id.toBinary()               // fresh Uint8Array(18) copy
+id.toJSON()                 // same as toString(), so res.json({ id }) just works
+id.parse()                  // decode fields WITHOUT verifying
+id.equals(other)            // byte equality
+
+VIDValue.fromString(str)    // parse a string (format check only, no signature check)
+VIDValue.fromBinary(bytes)  // wrap bytes from your database
+VIDValue.compare(a, b)      // sort comparator: ids.sort(VIDValue.compare)
+VIDValue.isVIDValue(x)      // type guard
 ```
 
-> **Sort order:** VID binary fields sort chronologically — `ORDER BY id ASC` in PostgreSQL or MongoDB is time order. **Base32 strings are not directly string-sortable** (the alphabet `A–Z,2–7` does not align with ASCII order). Always sort by the binary column or the extracted timestamp, never by the string representation.
+### Diagnostics
+
+```ts
+logger.info("VID ready", { nodeId: vid.getNodeId(), keyVersion: vid.getCurrentKeyVersion() })
+```
+
+---
+
+## Recipes
+
+### Express
+
+```ts
+app.param("id", (req, res, next, raw) => {
+  const result = vid.verifyDetailed(raw)
+  if (!result.valid) {
+    logger.warn({ reason: result.reason, ip: req.ip }, "VID rejected")
+    return res.status(400).json({ error: "Invalid ID" })
+  }
+  next()
+})
+
+app.get("/orders/:id", async (req, res) => {
+  // Only IDs your servers issued reach this line.
+  res.json(await orders.findById(req.params.id))
+})
+```
+
+### Fastify
+
+```ts
+fastify.addHook("preHandler", async (req, reply) => {
+  const id = (req.params as { id?: string }).id
+  if (id !== undefined && !vid.verify(id)) {
+    return reply.code(400).send({ error: "Invalid ID" })
+  }
+})
+```
+
+### Next.js route handler (Node.js runtime)
+
+```ts
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  if (!vid.verify(params.id)) return Response.json({ error: "Invalid ID" }, { status: 400 })
+  return Response.json(await getOrder(params.id))
+}
+```
+
+### Zod
+
+```ts
+const VidString = z.string().refine((s) => vid.verify(s), "Invalid ID")
+```
+
+### Short-lived links (freshness)
+
+```ts
+const { timestamp } = vid.parse(token)
+if (Date.now() - timestamp > 15 * 60_000) throw new Error("Link expired")
+```
+
+---
+
+## Databases
+
+Store IDs as **binary (18 bytes)**, not as strings. Binary is smaller, indexes better and sorts by time.
+
+### PostgreSQL
+
+```sql
+CREATE TABLE orders (
+  id    BYTEA PRIMARY KEY CHECK (octet_length(id) = 18),
+  total INTEGER NOT NULL
+);
+```
+
+```ts
+import { VIDPostgresAdapter as PG } from "@veridjs/core/postgres"
+
+await db.query("INSERT INTO orders (id, total) VALUES ($1, $2)", [PG.toDatabase(vid.generate()), 4200])
+
+// Look up by the string a client sent you (verify first!)
+if (!vid.verify(req.params.id)) return res.status(400).end()
+const { rows } = await db.query("SELECT * FROM orders WHERE id = $1", [PG.fromString(req.params.id)])
+
+// Keyset pagination: no OFFSET, fast at any depth
+const page = await db.query(
+  "SELECT id, total FROM orders WHERE id > $1 ORDER BY id LIMIT 50",
+  [PG.toCursor(req.query.after)]
+)
+const items = page.rows.map((r) => ({ id: PG.fromDatabase(r.id).toString(), total: r.total }))
+```
+
+### MongoDB
+
+```ts
+import { VIDMongoAdapter as Mongo } from "@veridjs/core/mongo"  // needs `bson` (ships with the mongodb driver)
+
+await orders.insertOne({ _id: Mongo.toDatabase(vid.generate()), total: 4200 })
+
+if (!vid.verify(req.params.id)) return res.status(400).end()
+const doc = await orders.findOne({ _id: Mongo.fromString(req.params.id) })
+const id  = Mongo.fromDatabase(doc._id)   // works with the driver's own bson copy
+```
+
+**Mongoose:**
+
+```ts
+const orderSchema = new Schema({
+  _id: { type: Buffer, default: () => Buffer.from(vid.generate().toBinary()) },
+})
+```
+
+### Prisma / Drizzle / Kysely
+
+Use a `Bytes` / `bytea` column and pass `Buffer.from(id.toBinary())`. Read it back with `VIDValue.fromBinary(row.id)`.
+
+### Sorting
+
+Binary VIDs sort in time order, so `ORDER BY id` is chronological. **Base32 strings do not sort** this way (the RFC 4648 alphabet isn't in ASCII order). Sort by the binary column, by `meta.timestamp`, or in JavaScript with `ids.sort(VIDValue.compare)`.
+
+The first byte is the key version, so always rotate **upwards** (1 → 2 → 3). Rotating upwards keeps IDs signed with a newer key sorting after older ones.
 
 ---
 
 ## Key rotation
 
-Add the new key alongside the old one. Old IDs remain verifiable. The `keyVersion` byte embedded in every ID tells the verifier which key to use automatically.
+The key version travels inside every ID, so verification always picks the right key.
 
 ```ts
-// Step 1 — currently on version 1
-const vid = VID.initialize({
-  keys: { 1: process.env.VID_SECRET_V1! },
-  currentKeyVersion: 1,
-})
+// 1. Today
+VID.initialize({ keys: { 1: V1 }, currentKeyVersion: 1 })
 
-// Step 2 — rotate: new IDs use v2, old v1 IDs still verify
-const vid = VID.initialize({
-  keys: {
-    1: process.env.VID_SECRET_V1!,   // retained — old IDs still verifiable
-    2: process.env.VID_SECRET_V2!,   // new IDs use this
-  },
-  currentKeyVersion: 2,
-})
+// 2. Rotate: new IDs use v2, existing v1 IDs still verify
+VID.initialize({ keys: { 1: V1, 2: V2 }, currentKeyVersion: 2 })
 
-// Step 3 — once all v1 IDs have expired from your system, remove v1
-const vid = VID.initialize({
-  keys: { 2: process.env.VID_SECRET_V2! },
-  currentKeyVersion: 2,
-})
+// 3. Revoke: drop v1 and every ID it signed stops verifying (reason: UNKNOWN_KEY_VERSION)
+VID.initialize({ keys: { 2: V2 }, currentKeyVersion: 2 })
 ```
+
+Leaked secret? Rotate immediately and decide whether to keep the old version for verification or revoke it.
 
 ---
 
 ## Node identity
 
-VID embeds a `nodeId` (0–65535) in every ID to prevent collisions across concurrent instances generating IDs in the same millisecond. Resolution runs in this priority order:
+Two generators may only share a `nodeId` if they never run at the same time. Resolution order:
 
-| Priority | Source | Notes |
+| # | Source | Notes |
 |:---:|---|---|
-| 1 | `nodeId` in config (number) | Most explicit. Best for static deployments. |
-| 2 | `nodeId` in config (string) | SHA-256 hashed to a stable uint16. Deterministic across restarts. |
-| 3 | `POD_IP` env var | Kubernetes Downward API — unique per pod. |
-| 4 | `HOSTNAME` env var | Docker / ECS — unique per container. |
-| 5 | Random + **warning logged** | Safe only for single-instance deployments. The warning goes to `onWarning` if given, else `console.warn`. |
+| 1 | `nodeId: 42` | Explicit, no hashing. **Best for large fleets.** |
+| 2 | `nodeId: "api-7d9f"` | SHA-256 → uint16. Stable across restarts. |
+| 3 | `POD_IP` env | Kubernetes Downward API, combined with process id and thread id. |
+| 4 | `HOSTNAME` env | Docker / ECS / VMs, combined with process id and thread id. |
+| 5 | Random | Warns via `onWarning` / `console.warn`. Single instance only. |
 
-**Kubernetes (recommended for production):**
+Options 3 and 4 include the process id and thread id, so **cluster mode, PM2 and `worker_threads` work out of the box.**
+
+**How likely are collisions?** Hashed and random node ids live in a 16-bit space. With *n* generators, the chance that any two share a node id is about 1 − e^(−n²/131072): **0.07% at 10, 7% at 100, 50% at 300.** Two things reduce the risk:
+
+- Even with a shared node id, two IDs only collide if both generators pick the same random starting sequence in the same millisecond (1 in 32,768).
+- **For more than a few dozen instances, assign numeric node ids**, e.g. from a StatefulSet ordinal:
+
+```ts
+VID.initialize({ keys, currentKeyVersion: 1, nodeId: Number(process.env.HOSTNAME!.split("-").pop()) })
+```
 
 ```yaml
-# Inject the pod's IP as an env var — unique per pod, no coordination needed
+# Kubernetes: expose the pod IP for auto-detection
 env:
   - name: POD_IP
-    valueFrom:
-      fieldRef:
-        fieldPath: status.podIP
-```
-
-```ts
-// VID picks it up automatically
-const vid = VID.initialize({
-  keys: { 1: process.env.VID_SECRET! },
-  currentKeyVersion: 1,
-  // no nodeId needed — POD_IP is detected automatically
-})
-```
-
-> ⚠️ If two running instances resolve to the same `nodeId` and generate IDs in the same millisecond, a collision is possible. Ensure your nodeId assignment is unique across all concurrently running instances.
-
----
-
-## Database integration
-
-### MongoDB
-
-VID stores as BSON Binary — 18 bytes on disk per ID, no string encoding overhead.
-
-```ts
-import { VIDMongoAdapter } from "@veridjs/core/adapters/mongo"
-
-// Insert
-await collection.insertOne({
-  _id:   VIDMongoAdapter.toDatabase(vid.generate()),  // VIDValue → BSON Binary
-  email: "user@example.com",
-})
-
-// Query by ID from URL param or request body
-const binary = VIDMongoAdapter.fromString(req.params.id)
-const doc    = await collection.findOne({ _id: binary })
-if (!doc) return res.status(404).send()
-
-// Load and verify the returned document ID
-const id      = VIDMongoAdapter.fromDatabase(doc._id)
-const isValid = vid.verify(id)
-const meta    = vid.parse(id, { verify: false })  // already verified above
-```
-
-**Mongoose schema:**
-```ts
-const userSchema = new Schema({
-  _id: {
-    type:    Buffer,
-    default: () => VIDMongoAdapter.toDatabase(vid.generate()),
-  }
-})
-```
-
----
-
-### PostgreSQL
-
-VID stores as `BYTEA` — 18 bytes per row. B-tree index on `BYTEA` sorts chronologically, enabling native time-range queries and O(log n) cursor pagination without a separate `created_at` column.
-
-```sql
-CREATE TABLE users (
-  id    BYTEA PRIMARY KEY,
-  email TEXT  NOT NULL
-);
-```
-
-```ts
-import { VIDPostgresAdapter } from "@veridjs/core/adapters/postgres"
-
-// Insert
-await db.query(
-  "INSERT INTO users (id, email) VALUES ($1, $2)",
-  [VIDPostgresAdapter.toDatabase(vid.generate()), "user@example.com"]
-)
-
-// Query by string ID
-const result = await db.query(
-  "SELECT * FROM users WHERE id = $1",
-  [VIDPostgresAdapter.fromString(req.params.id)]
-)
-
-// Cursor-based pagination — no OFFSET, efficient at any page depth
-const rows = await db.query(
-  `SELECT id, email FROM users
-   WHERE id > $1
-   ORDER BY id ASC
-   LIMIT 50`,
-  [VIDPostgresAdapter.toCursor(req.query.after)]
-)
-
-// Convert returned rows back to VIDValue
-const id   = VIDPostgresAdapter.fromDatabase(rows[0].id)
-const meta = vid.parse(id)
+    valueFrom: { fieldRef: { fieldPath: status.podIP } }
 ```
 
 ---
 
 ## Security model
 
-### What VID guarantees
+**Guarantees**
 
-- ✅ The ID was produced by a system holding the correct secret key
-- ✅ No byte in the ID has been modified since generation
-- ✅ Cross-instance uniqueness (assuming unique nodeIds across concurrent instances)
-- ✅ Time-sortability — binary sort order equals generation order
+- The ID was produced by someone holding your secret.
+- No byte has changed since it was generated.
+- Each ID has exactly **one** valid string form, so string-keyed caches, dedupe and rate limits can't be bypassed with an alternate spelling.
 
-### What VID does not guarantee
+**Not guaranteed (your app's job)**
 
-- ❌ **Replay protection** — a valid ID captured in transit can be reused. Add a seen-ID store (e.g. Redis `SET NX` with TTL) if replay attacks are a concern
-- ❌ **Ownership** — VID does not prove an ID belongs to a specific user. That is your application's responsibility
-- ❌ **Freshness** — VID does not reject old IDs. Check `meta.timestamp` if you need a freshness window
+- **Authorization.** A valid ID is not permission to read the resource.
+- **Confidentiality.** Timestamp, node id and sequence are readable by anyone.
+- **Replay and freshness.** Valid IDs stay valid until you revoke the key. Check `meta.timestamp` if you need expiry.
 
-### Cryptographic parameters
-
-| Parameter | Value | Notes |
-|---|---|---|
-| Algorithm | HMAC-SHA256 | Standard, widely audited |
-| Signature | 7 bytes (56 bits) | ~72 quadrillion possible values |
-| Key derivation | SHA-256 of raw secret | 32-byte key, raw secret never stored |
-| Comparison | `crypto.timingSafeEqual` | No timing side-channel |
-| Random forgery probability | 1 in 72,057,594,037,927,936 | Per attempt, no precomputation possible |
-
-Pair VID with API-level rate limiting to make targeted brute-force computationally infeasible.
-
-### Security disclosure
-
-Please **do not open a public GitHub issue** for security vulnerabilities. Email `kmali4551@gmail.com` directly. Public issues announce the vulnerability to attackers before a patch is available.
-
----
-
-## Express middleware pattern
-
-```ts
-// Authenticate every VID in route params automatically
-app.param("id", (req, res, next, rawId) => {
-  const result = vid.verifyDetailed(rawId)
-
-  if (!result.valid) {
-    logger.warn("VID rejected", { reason: result.reason, ip: req.ip })
-    return res.status(400).json({ error: "Invalid ID" })
-  }
-
-  req.vidMeta = vid.parse(rawId, { verify: false }) // already verified above
-  next()
-})
-
-app.get("/users/:id", async (req, res) => {
-  const { nodeId, timestamp } = req.vidMeta
-  // ID is authenticated — safe to query
-  const user = await db.users.findById(req.params.id)
-  res.json(user)
-})
-```
-
----
-
-## Environment variables
-
-| Variable | Purpose |
+| Parameter | Value |
 |---|---|
-| `VID_SECRET` | Primary secret key (min 16 chars) |
-| `VID_SECRET_V2` | New secret during rotation |
-| `POD_IP` | Auto-detected in Kubernetes for `nodeId` (inject via Downward API) |
-| `HOSTNAME` | Auto-detected in Docker/ECS for `nodeId` |
-| `NODE_ENV=production` | Prevents test clock overrides (`TimeUtils.setNowProvider`) from running |
+| MAC | HMAC-SHA256, truncated to 56 bits |
+| Forgery odds | 1 in 7.2 × 10¹⁶ per guess; rate-limit endpoints that accept IDs |
+| Key derivation | SHA-256(secret) → 32-byte key; the raw secret is never stored |
+| Comparison | `crypto.timingSafeEqual` |
+
+Found a vulnerability? Please report it privately; see [SECURITY.md](./SECURITY.md).
 
 ---
 
-## Diagnostics
+## FAQ
 
-```ts
-logger.info("VID engine ready", {
-  nodeId:     vid.getNodeId(),            // the uint16 embedded in every generated ID
-  keyVersion: vid.getCurrentKeyVersion(), // version used for new IDs
-})
-```
+**Can I use VID as a primary key?**
+Yes. Store it as `BYTEA` / `BinData` (18 bytes). Inserts are append-mostly, like UUIDv7.
 
-Log this at startup. If `nodeId` changes between deploys unexpectedly, it means your nodeId source (env var or string) changed — old IDs still verify, but you will want to understand why the node identity shifted.
+**Does it work in browsers, Deno or Bun?**
+It needs `node:crypto` and `node:worker_threads`. Bun and Deno implement both through their Node compatibility layers, but CI only covers Node.js today. Browsers and the Vercel/Cloudflare edge runtime aren't supported yet; see the roadmap.
+
+**Should clients generate IDs?**
+No. Only code that holds the secret can generate IDs, and that code is the trust boundary.
+
+**Why 29 characters and not 26?**
+18 bytes = 144 bits, and 144 ÷ 5 bits per base32 character rounds up to 29.
 
 ---
+
+## Roadmap
+
+- [ ] WebCrypto build for edge runtimes and browsers (verify-only)
+- [ ] Optional sortable string encoding (Crockford base32) as a v2 format
+- [ ] Go / Python verifiers for polyglot backends
+
+Ideas and PRs are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## License
 
-MIT — see [LICENSE](./LICENSE)
-
----
-
-## Contributing
-
-Pull requests and issues welcome on [GitHub](https://github.com/KishanKumar08/veridjs).
-
-For security vulnerabilities, email privately — do not open a public issue.
+[MIT](./LICENSE) © Kishan Kumar

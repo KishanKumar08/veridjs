@@ -230,7 +230,7 @@ export class VIDPostgresAdapter {
    *
    * @example
    * ```ts
-   * // Client sends: GET /users?after=AEAZY4DVF7PQAKQAAA2PMOJS2DIBB
+   * // Client sends: GET /users?after=AEAZY4DVF7PQAKQAADFM7JS2DIBBQ
    * const cursor = VIDPostgresAdapter.toCursor(req.query.after)
    * const result = await db.query(
    *   `SELECT id, email FROM users

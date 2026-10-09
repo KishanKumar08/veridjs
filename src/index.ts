@@ -1,1 +1,6 @@
 export { VID } from "./core/VID"
+export type { VIDInitOptions, ParseOptions } from "./core/VID"
+export { VIDValue } from "./core/VIDValue"
+export type { VIDInput, InputFailureReason } from "./core/input"
+export type { VerifyResult, VerifyFailureReason } from "./core/VIDVerifier"
+export type { VIDMetadata } from "./types"

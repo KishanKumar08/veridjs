@@ -1,12 +1,14 @@
-import { createHash } from "crypto"
-import { VIDGenerator } from "./VIDGenerator"
+import { createHash, KeyObject } from "crypto"
+import { HMACSigner } from "../crypto/HMACSigner"
+import { VIDMetadata } from "../types"
+import { NodeIdResolver, VIDGenerator } from "./VIDGenerator"
 import { VIDVerifier, VerifyResult } from "./VIDVerifier"
 import { VIDParser } from "./VIDParser"
 import { VIDValue } from "./VIDValue"
-import { NodeIdResolver } from "./VIDGenerator"
+import { VIDInput } from "./input"
 
 /**
- * Minimum byte length of a derived secret key.
+ * Minimum UTF-8 byte length of a raw secret string.
  */
 const MIN_SECRET_CHARS = 16
 
@@ -97,7 +99,7 @@ export interface ParseOptions {
  * const meta  = vid.parse(id)
  */
 export class VID {
-  private readonly keys: Map<number, Uint8Array>
+  private readonly keys: Map<number, KeyObject>
   private readonly currentKeyVersion: number
   private readonly nodeId: number
   private readonly generator: VIDGenerator
@@ -105,12 +107,11 @@ export class VID {
   private constructor(options: VIDInitOptions) {
     VID.validateOptions(options)
 
-    this.keys = new Map<number, Uint8Array>()
+    // Derive and import every key once; generate/verify reuse the KeyObjects.
+    this.keys = new Map<number, KeyObject>()
 
     for (const [versionKey, rawSecret] of Object.entries(options.keys)) {
-      const version = Number(versionKey)
-      const derived = VID.deriveKey(rawSecret)
-      this.keys.set(version, derived)
+      this.keys.set(Number(versionKey), HMACSigner.createKey(VID.deriveKey(rawSecret)))
     }
 
     this.currentKeyVersion = options.currentKeyVersion
@@ -123,7 +124,11 @@ export class VID {
     }
 
     this.nodeId = resolution.nodeId
-    this.generator = new VIDGenerator()
+    this.generator = new VIDGenerator({
+      secret: this.keys.get(this.currentKeyVersion)!,
+      keyVersion: this.currentKeyVersion,
+      nodeId: this.nodeId,
+    })
   }
 
   /**
@@ -159,9 +164,9 @@ export class VID {
    *   - Globally unique (assuming unique nodeId per running instance)
    *   - Time-sortable (binary sort matches chronological order)
    *   - HMAC-signed (7-byte SHA-256 truncation; tamper-evident)
-   *   - Exactly 18 bytes binary / 26 characters base32
+   *   - Exactly 18 bytes binary / 29 characters base32
    *
-   * Throughput: up to 65,536 unique IDs/ms on this instance.
+   * Throughput: at least 32,768 unique IDs/ms on this instance.
    * Overflow: generator blocks (spin-waits) until next ms — never wraps silently.
    *
    * This method is synchronous.
@@ -173,18 +178,12 @@ export class VID {
    * @example
    * ```ts
    * const id = vid.generate()
-   * console.log(id.toString())  // "AEAZY4DVF7PQAKQAAA2PMOJS2DIBB"
+   * console.log(id.toString())  // "AEAZY4DVF7PQAKQAADFM7JS2DIBBQ"
    * console.log(id.toBinary())  // Uint8Array(18)
    * ```
    */
   generate(): VIDValue {
-    const secret = this.keys.get(this.currentKeyVersion)!
-
-    return this.generator.generate({
-      secret,
-      keyVersion: this.currentKeyVersion,
-      nodeId: this.nodeId,
-    })
+    return this.generator.generate()
   }
 
   /**
@@ -206,14 +205,12 @@ export class VID {
    *
    * @example
    * ```ts
-   * vid.verify("AEAZY4DVF7PQAKQAAA2PMOJS2DIBB")  // string
+   * vid.verify("AEAZY4DVF7PQAKQAADFM7JS2DIBBQ")  // string
    * vid.verify(id.toBinary())                    // Uint8Array
    * vid.verify(id)                               // VIDValue
    * ```
    */
-  verify(
-    input: string | Uint8Array | Buffer | ArrayBuffer | VIDValue
-  ): boolean {
+  verify(input: VIDInput): boolean {
     return VIDVerifier.verify(input, this.keys)
   }
 
@@ -238,9 +235,7 @@ export class VID {
    * }
    * ```
    */
-  verifyDetailed(
-    input: string | Uint8Array | Buffer | ArrayBuffer | VIDValue
-  ): VerifyResult {
+  verifyDetailed(input: VIDInput): VerifyResult {
     return VIDVerifier.verifyDetailed(input, this.keys)
   }
 
@@ -274,10 +269,7 @@ export class VID {
    * console.log(meta.sequence)  // 7
    * ```
    */
-  parse(
-    input: string | Uint8Array | Buffer | ArrayBuffer | VIDValue,
-    options?: ParseOptions
-  ): ReturnType<typeof VIDParser.parse> {
+  parse(input: VIDInput, options?: ParseOptions): VIDMetadata {
     const shouldVerify = options?.verify !== false
 
     if (shouldVerify) {

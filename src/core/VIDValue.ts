@@ -1,4 +1,6 @@
 import { Base32Encoder } from "../encoding/Base32Encoder"
+import { VIDMetadata } from "../types"
+import { decodeMetadata } from "./metadata"
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -12,35 +14,22 @@ const VID_BYTE_LENGTH = 18
 /** Required character length of a base32-encoded VID string. */
 const VID_STRING_LENGTH = 29
 
-/** Byte offset where the timestamp field begins. */
-const OFFSET_TIMESTAMP = 1
-
-/** Byte offset where the nodeId field begins. */
-const OFFSET_NODE_ID = 7
-
-/** Byte offset where the sequence field begins. */
-const OFFSET_SEQUENCE = 9
-
-/** Byte offset where the HMAC signature begins. */
-const OFFSET_SIGNATURE = 11
-
 /**
  * Regex that validates a base32-encoded VID string.
- * Accepts uppercase A–Z and digits 2–7 (standard base32 alphabet), exactly 26 chars.
+ * Accepts uppercase A–Z and digits 2–7 (standard base32 alphabet), exactly 29 chars.
  */
-const VID_STRING_REGEX = /^[A-Z2-7]{26}$/
+const VID_STRING_REGEX = /^[A-Z2-7]{29}$/
 
 
 /**
  * Immutable value object wrapping an 18-byte VID binary.
  *
  * Responsibilities:
- *   - Holds the binary representation as a deeply immutable defensive copy
- *   - Provides string output (base32, 26 chars) via toString()
+ *   - Holds the binary representation as a defensive copy
+ *   - Provides string output (base32, 29 chars) via toString() / toJSON()
  *   - Provides binary output (Uint8Array, 18 bytes) via toBinary()
  *   - Exposes structured metadata via parse()
- *   - Supports value equality via equals()
- *   - Validates its own structural integrity on construction
+ *   - Supports value equality via equals() and ordering via VIDValue.compare()
  *
  * Security model:
  *   VIDValue is a data container — it does NOT verify the HMAC signature.
@@ -51,23 +40,14 @@ const VID_STRING_REGEX = /^[A-Z2-7]{26}$/
  * Immutability:
  *   - The internal binary is a defensive copy of the constructor input
  *   - toBinary() returns another defensive copy — callers cannot mutate internal state
- *   - The instance itself is frozen via Object.freeze()
- *   - Cached computed values (string, metadata) are frozen as well
- *
- * Usage:
- *   VIDValue is constructed by VIDGenerator.generate() and VID.parse().
- *   Do not construct directly unless you have a validated 18-byte binary.
  */
 export class VIDValue {
 
   /** Internal 18-byte binary. Never exposed directly — always copied on output. */
   private readonly binary: Uint8Array
 
-  /**
-   * Lazily cached base32 string. Computed once on first toString() call.
-   * Stored as a non-enumerable property to keep JSON serialization clean.
-   */
-  private _cachedString?: string
+  /** Lazily cached base32 string. Computed on first toString() call. */
+  private cachedString?: string
 
   // ─── Constructor ────────────────────────────────────────────────────────
 
@@ -100,42 +80,41 @@ export class VIDValue {
       throw new RangeError(
         `VIDValue: binary must be exactly ${VID_BYTE_LENGTH} bytes. ` +
         `Received ${binary.length} bytes. ` +
-        `Ensure this binary was produced by VIDGenerator.generate().`
+        `Ensure this binary was produced by vid.generate().`
       )
     }
-    this.binary = binary
-    this._cachedString = Base32Encoder.encode(this.binary)
+
+    this.binary = new Uint8Array(binary)
   }
 
   /**
    * Returns the base32-encoded string representation of this VID.
    *
-   * Format: 26 uppercase characters from the standard base32 alphabet (A–Z, 2–7).
-   * Example: "AEAZY4DVF7PQAKQAAA2PMOJS2DIBB"
+   * Format: 29 uppercase characters from the RFC 4648 base32 alphabet (A–Z, 2–7).
+   * Example: "AEAZY4DVF7PQAKQAADFM7JS2DIBBQ"
    *
-   * The result is cached after the first call — subsequent calls return
-   * the same string instance with zero re-computation cost.
+   * Computed once on first call, then cached.
    *
-   * Use cases: APIs, JSON payloads, logging, debugging, URL parameters.
-   *
-   * @returns 26-character base32 string.
+   * @returns 29-character base32 string.
    */
   toString(): string {
-    if (this._cachedString !== undefined) {
-      return this._cachedString
+    if (this.cachedString === undefined) {
+      this.cachedString = Base32Encoder.encode(this.binary)
     }
+    return this.cachedString
+  }
 
-    const encoded = Base32Encoder.encode(this.binary)
-
-    // direct assignment works because field was never frozen
-    this._cachedString = encoded
-
-    return encoded
+  /**
+   * JSON form is the base32 string, so `JSON.stringify({ id })` and
+   * `res.json({ id })` produce `{"id":"AEAZY..."}` instead of a byte map.
+   */
+  toJSON(): string {
+    return this.toString()
   }
 
   /**
    * Returns the raw 18-byte binary representation of this VID.
-   * 
+   *
    * Use cases: database storage (MongoDB _id, PostgreSQL BYTEA),
    * Redis keys, binary wire protocols, high-performance pipelines.
    *
@@ -145,29 +124,63 @@ export class VIDValue {
     return new Uint8Array(this.binary)
   }
 
+  /**
+   * Structurally decodes the embedded fields — keyVersion, timestamp,
+   * nodeId, sequence.
+   *
+   * ⚠️  Does NOT verify the signature. For input from an untrusted source,
+   *     use vid.parse(), which verifies first.
+   *
+   * @throws {RangeError} If the embedded timestamp is out of range (corrupt binary).
+   */
+  parse(): VIDMetadata {
+    return decodeMetadata(this.binary)
+  }
+
+  /**
+   * Byte-for-byte equality with another VIDValue.
+   */
+  equals(other: VIDValue): boolean {
+    if (!(other instanceof VIDValue)) {
+      return false
+    }
+    for (let i = 0; i < VID_BYTE_LENGTH; i++) {
+      if (this.binary[i] !== other.binary[i]) {
+        return false
+      }
+    }
+    return true
+  }
+
+  /**
+   * Shows `VIDValue(AEAZY…)` in console.log / util.inspect instead of internals.
+   */
+  [Symbol.for("nodejs.util.inspect.custom")](): string {
+    return `VIDValue(${this.toString()})`
+  }
+
   // ─── Static Factories ───────────────────────────────────────────────────
 
   /**
    * Constructs a VIDValue from a base32-encoded VID string.
    *
-   * Validates format (26 chars, valid base32 alphabet) before decoding.
-   * The decoded binary is then validated for correct length.
+   * Validates format (29 chars, base32 alphabet, canonical padding) before
+   * decoding. Case-insensitive; surrounding whitespace is ignored.
    *
    * Use this when receiving a VID from an API request, URL parameter,
    * or any string-based input. After construction, call vid.verify()
    * to authenticate the signature before trusting the ID.
    *
-   * @param input - A 26-character base32 VID string.
+   * @param input - A 29-character base32 VID string.
    * @returns A VIDValue wrapping the decoded binary.
    *
    * @throws {TypeError}  If input is not a string.
-   * @throws {RangeError} If input is not exactly 26 characters.
-   * @throws {Error}      If input contains invalid base32 characters.
-   * @throws {RangeError} If the decoded binary is not 18 bytes (corrupt input).
+   * @throws {RangeError} If input is not exactly 29 characters.
+   * @throws {Error}      If input contains invalid or non-canonical base32 characters.
    *
    * @example
    * ```ts
-   * const id = VIDValue.fromString("AEAZY4DVF7PQAKQAAA2PMOJS2DIBB")
+   * const id = VIDValue.fromString("AEAZY4DVF7PQAKQAADFM7JS2DIBBQ")
    * const isValid = vid.verify(id)
    * ```
    */
@@ -178,31 +191,27 @@ export class VIDValue {
       )
     }
 
-    const trimmed = input.trim().toUpperCase()
+    const normalized = input.trim().toUpperCase()
 
-    if (trimmed.length !== VID_STRING_LENGTH) {
+    if (normalized.length !== VID_STRING_LENGTH) {
       throw new RangeError(
         `VIDValue.fromString: VID strings must be exactly ${VID_STRING_LENGTH} characters. ` +
-        `Received ${trimmed.length} characters.`
+        `Received ${normalized.length} characters.`
       )
     }
 
-    if (!VID_STRING_REGEX.test(trimmed)) {
+    if (!VID_STRING_REGEX.test(normalized)) {
       throw new Error(
         `VIDValue.fromString: input contains invalid characters. ` +
-        `VID strings use the base32 alphabet (A–Z, 2–7). ` +
-        `Received: "${trimmed}"`
+        `VID strings use the base32 alphabet (A–Z, 2–7).`
       )
     }
 
-    const binary = Base32Encoder.decode(trimmed)
-
-    // Delegate full binary validation to the constructor
-    return new VIDValue(binary)
+    return new VIDValue(Base32Encoder.decode(normalized))
   }
 
   /**
-   * Constructs a VIDValue from a raw binary buffer, with an explicit type guard.
+   * Constructs a VIDValue from a raw binary buffer.
    *
    * Functionally equivalent to `new VIDValue(binary)` but reads more clearly
    * in pipelines where the input origin is explicit (e.g. database retrieval).
@@ -212,38 +221,34 @@ export class VIDValue {
    *
    * @throws {TypeError}  If binary is null, undefined, or not a Uint8Array.
    * @throws {RangeError} If binary is not exactly 18 bytes.
-   *
-   * @example
-   * ```ts
-   * // MongoDB
-   * const id = VIDValue.fromBinary(doc._id)
-   * const isValid = vid.verify(id)
-   *
-   * // PostgreSQL
-   * const id = VIDValue.fromBinary(row.id)
-   * ```
    */
   static fromBinary(binary: Uint8Array): VIDValue {
     return new VIDValue(binary)
   }
 
   /**
-   * Type guard: returns true if the value is a valid VIDValue instance.
-   *
-   * Useful in validation layers, middleware, or any place where you receive
-   * an unknown value and need to narrow its type safely.
-   *
-   * @param value - Any value to test.
-   * @returns true if value is a VIDValue, false otherwise.
-   *
-   * @example
-   * ```ts
-   * if (VIDValue.isVIDValue(maybeId)) {
-   *   const isValid = vid.verify(maybeId)
-   * }
-   * ```
+   * Type guard: returns true if the value is a VIDValue instance.
    */
   static isVIDValue(value: unknown): value is VIDValue {
     return value instanceof VIDValue
+  }
+
+  /**
+   * Comparator for Array.prototype.sort — orders by binary value, which
+   * for IDs signed with the same key version is chronological order.
+   *
+   * @example
+   * ```ts
+   * ids.sort(VIDValue.compare)
+   * ```
+   */
+  static compare(a: VIDValue, b: VIDValue): number {
+    for (let i = 0; i < VID_BYTE_LENGTH; i++) {
+      const diff = a.binary[i] - b.binary[i]
+      if (diff !== 0) {
+        return diff < 0 ? -1 : 1
+      }
+    }
+    return 0
   }
 }
