@@ -1,0 +1,24 @@
+name: Feature or integration
+description: Suggest a feature, adapter, middleware or port to another language.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do, and why doesn't VID handle it today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What you'd add or change. Note that changes to the binary format need discussion first (see SPEC.md §11).
+    validations:
+      required: true
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to work on this myself

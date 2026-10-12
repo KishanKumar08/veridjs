@@ -20,4 +20,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Test vectors are up to date
+        run: npm run vectors && git diff --exit-code spec/
       - run: npm run bench

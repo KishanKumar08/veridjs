@@ -392,13 +392,19 @@ No. Only code that holds the secret can generate IDs, and that code is the trust
 
 ---
 
+## Specification
+
+The format is documented byte by byte in [SPEC.md](./SPEC.md), with language-neutral test vectors in [`spec/test-vectors.json`](./spec/test-vectors.json). A verifier in any language that passes the vectors is compatible with this package.
+
 ## Roadmap
 
+- [x] Format specification and cross-language test vectors
 - [ ] WebCrypto build for edge runtimes and browsers (verify-only)
-- [ ] Optional sortable string encoding (Crockford base32) as a v2 format
+- [ ] Bun and Deno in CI
 - [ ] Go / Python verifiers for polyglot backends
+- [ ] Optional sortable string encoding (Crockford base32) as a v2 format
 
-Ideas and PRs are welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md).
+Ideas and PRs are welcome, and so is "this is the wrong approach because…". See [CONTRIBUTING.md](./CONTRIBUTING.md) for good first issues and how to port VID to another language.
 
 ## License
 

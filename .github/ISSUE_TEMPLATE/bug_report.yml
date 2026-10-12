@@ -1,0 +1,37 @@
+name: Bug report
+description: Something doesn't work the way the README or SPEC.md says it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Security issue?** Don't open a public issue. See [SECURITY.md](../blob/master/SECURITY.md).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest code that shows the problem. Never paste a real secret.
+      render: ts
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "@veridjs/core version"
+      placeholder: "1.2.0"
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Runtime and version
+      placeholder: "Node 22.11 / Bun 1.2 / ..."
+    validations:
+      required: true

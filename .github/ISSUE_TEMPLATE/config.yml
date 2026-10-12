@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or design discussion
+    url: https://github.com/KishanKumar08/veridjs/discussions
+    about: "\"Would VID fit my system?\", tradeoffs, and ideas that aren't concrete yet."
+  - name: Security vulnerability
+    url: https://github.com/KishanKumar08/veridjs/blob/master/SECURITY.md
+    about: Please report privately. Don't open a public issue.

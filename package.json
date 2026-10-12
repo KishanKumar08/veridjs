@@ -59,6 +59,8 @@
   "files": [
     "dist",
     "README.md",
+    "SPEC.md",
+    "spec/test-vectors.json",
     "LICENSE",
     "SECURITY.md",
     "CHANGELOG.md"
@@ -73,7 +75,8 @@
     "typecheck": "tsc --noEmit",
     "test": "npm run build && node --test tests/*.test.js",
     "bench": "npm run build && node bench/bench.js",
-    "prepublishOnly": "npm test"
+    "prepublishOnly": "npm test",
+    "vectors": "node scripts/gen-test-vectors.js"
   },
   "peerDependencies": {
     "bson": ">=4"
