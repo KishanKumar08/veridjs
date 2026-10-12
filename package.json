@@ -1,6 +1,6 @@
 {
   "name": "@veridjs/core",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Signed, time-sortable IDs for Node.js. Verify an ID came from your servers in one synchronous call, before touching the database.",
   "keywords": [
     "id",
